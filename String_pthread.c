@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
 	pthread_mutex_init(&total_lock,NULL);
 	readf(fp);
 	for(i=0;i<NUM_THREADS;i++){
-		rc=pthread_create(&threads[i],NULL,sub_string,(void *)i);
+		rc=pthread_create(&threads[i],NULL,sub_string,(void *)(long)i);
 		if (rc){
 			printf("ERROR: return error from pthread_create() is %d\n", rc);
 			exit(-1);
@@ -72,7 +72,36 @@ int readf(FILE *fp)
 void *sub_string(void *threadid) 	/*each process searches in the string with the step of nprocs until it reach or beyond*/ 
 	/*the (n1-n2)th char which is the last possible beginning of the substring*/
 {
+    int tid = (int)(long)threadid;
+    int i, j, k;
+    int local_total = 0;
+    int count;
 
+    int start = tid * nlocal;
+    int end = start + nlocal - 1;
+
+    if (end > n1 - n2)
+        end = n1 - n2;
+
+    for (i = start; i <= end; i++) {
+        count = 0;
+        for (j = i, k = 0; k < n2; j++, k++) {
+            if (*(s1 + j) != *(s2 + k)) {
+                break;
+            } else {
+                count++;
+            }
+        }
+        if (count == n2) {
+            local_total++;
+        }
+    }
+
+    pthread_mutex_lock(&total_lock);
+    total += local_total;
+    pthread_mutex_unlock(&total_lock);
+
+    pthread_exit(NULL);
 }
 
 

@@ -1,0 +1,65 @@
+Name: Johnny (Dong Quan) Tran
+UTA ID: 1002249721
+
+Course: CSE 3320 – Operating Systems
+Project 3: Pthreads Programming (Spring 2026)
+
+Summary of work
+
+1) string_pthread.c  (Assignment 1)
+   - Parallel version of the substring counter.
+   - main() calls readf() to load s1 and s2 from strings.txt.
+   - s1 is split evenly across NUM_THREADS threads.
+   - Each thread counts matches that start in its own part of s1 and then
+     adds its local count into the global total using a mutex.
+
+2) producer_consumer.c  (Assignment 2)
+   - Classic producer–consumer with one producer and one consumer.
+   - Producer reads characters from message.txt and puts them into a
+     circular buffer of size 5.
+   - Consumer takes characters from the buffer and prints them in order.
+   - A mutex protects the buffer; two condition variables (not_full and
+     not_empty) are used so the producer waits when the buffer is full
+     and the consumer waits when it is empty.
+
+3) my_list_forming.c  (Assignment 3)
+   - Faster version of the given list-forming program.
+   - Each thread builds a local list of K nodes without holding the lock.
+   - When its local list is ready, the thread locks once, attaches the
+     whole local list to the global list, and unlocks.
+   - This replaces taking the mutex for every single node and reduces
+     lock contention, which makes the program run faster.
+     
+How to compile and run
+
+All commands assume a Linux/WSL shell with gcc and pthreads installed.
+
+1) Assignment 1 – string_pthread
+   - Input file strings.txt must contain two lines:
+       line 1: s1 (the long string)
+       line 2: s2 (the substring to search)
+   - Example:
+       abcdab
+       ab
+   - Compile and run:
+       gcc String_pthread.c -o string_pthread -lpthread
+       ./string_pthread
+
+2) Assignment 2 – producer_consumer
+   - Input file message.txt contains an arbitrary message, e.g.:
+       Hello from producer consumer!
+   - Compile and run:
+       gcc producer_consumer.c -o producer_consumer -lpthread
+       ./producer_consumer
+
+3) Assignment 3 – list-forming and my_list_forming
+   - Compile both the original and the optimized versions:
+       gcc list-forming.c -o list-forming -lpthread -D_GNU_SOURCE
+       gcc my_list_forming.c -o my_list_forming -lpthread -D_GNU_SOURCE
+   - Run with different thread counts (for example 4 and 8):
+       ./list-forming 4
+       ./my_list_forming 4
+       ./list-forming 8
+       ./my_list_forming 8
+   - The program prints total runtime in microseconds so it is easy to compare
+     the original and optimized versions.

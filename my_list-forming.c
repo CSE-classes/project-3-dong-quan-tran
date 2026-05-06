@@ -1,0 +1,176 @@
+/*
+ * my_list_forming.c
+ * Modified version of list-forming.c to reduce lock contention.
+ * Each thread builds a local list of K nodes and attaches that local list
+ * to the global list in one critical section.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/time.h>
+#include <sys/param.h>
+#include <sched.h>
+
+#define K 200  // generate a data node K times in each thread
+
+struct Node {
+    int data;
+    struct Node *next;
+};
+
+struct list {
+    struct Node *header;
+    struct Node *tail;
+};
+
+pthread_mutex_t mutex_lock;
+struct list *List;
+
+void bind_thread_to_cpu(int cpuid) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+
+    CPU_SET(cpuid, &mask);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &mask)) {
+        fprintf(stderr, "sched_setaffinity");
+        exit(EXIT_FAILURE);
+    }
+}
+
+struct Node *generate_data_node() {
+    struct Node *ptr;
+    ptr = (struct Node *)malloc(sizeof(struct Node));
+
+    if (ptr != NULL) {
+        ptr->next = NULL;
+    } else {
+        printf("Node allocation failed!\n");
+    }
+    return ptr;
+}
+
+/*
+ * Each thread:
+ *   - builds a private list of K nodes without holding the global lock
+ *   - then attaches that whole list to the global list once under the lock
+ */
+void *producer_thread(void *arg) {
+    bind_thread_to_cpu(*((int *)arg));  // bind this thread to a CPU
+
+    struct Node *ptr;
+    struct Node *local_head = NULL;
+    struct Node *local_tail = NULL;
+    int counter = 0;
+
+    // generate K nodes and form a local list
+    while (counter < K) {
+        ptr = generate_data_node();
+        if (ptr != NULL) {
+            ptr->data = 1;  // generated data
+
+            if (local_head == NULL) {
+                local_head = local_tail = ptr;
+            } else {
+                local_tail->next = ptr;
+                local_tail = ptr;
+            }
+            ++counter;
+        }
+    }
+
+    // attach the local list to the global list in one critical section
+    pthread_mutex_lock(&mutex_lock);
+
+    if (local_head != NULL) {
+        if (List->header == NULL) {
+            List->header = local_head;
+            List->tail = local_tail;
+        } else {
+            List->tail->next = local_head;
+            List->tail = local_tail;
+        }
+    }
+
+    pthread_mutex_unlock(&mutex_lock);
+
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    int i, num_threads;
+
+    int NUM_PROCS;        // number of CPUs
+    int *cpu_array = NULL;
+
+    struct Node *tmp, *next;
+    struct timeval starttime, endtime;
+
+    if (argc < 2) {
+        printf("Usage: %s num_threads\n", argv[0]);
+        return 0;
+    }
+
+    num_threads = atoi(argv[1]);  // read num_threads from user
+    pthread_t producer[num_threads];
+
+    NUM_PROCS = sysconf(_SC_NPROCESSORS_CONF);  // get number of CPUs
+    if (NUM_PROCS > 0) {
+        cpu_array = (int *)malloc(NUM_PROCS * sizeof(int));
+        if (cpu_array == NULL) {
+            printf("Allocation failed!\n");
+            exit(0);
+        } else {
+            for (i = 0; i < NUM_PROCS; i++)
+                cpu_array[i] = i;
+        }
+    }
+
+    pthread_mutex_init(&mutex_lock, NULL);
+
+    List = (struct list *)malloc(sizeof(struct list));
+    if (List == NULL) {
+        printf("End here\n");
+        exit(0);
+    }
+    List->header = List->tail = NULL;
+
+    gettimeofday(&starttime, NULL);  // get program start time
+
+    for (i = 0; i < num_threads; i++) {
+        pthread_create(&(producer[i]), NULL,
+                       producer_thread,
+                       &cpu_array[i % NUM_PROCS]);
+    }
+
+    for (i = 0; i < num_threads; i++) {
+        if (producer[i] != 0) {
+            pthread_join(producer[i], NULL);
+        }
+    }
+
+    gettimeofday(&endtime, NULL);  // get the finish time
+
+    if (List->header != NULL) {
+        next = tmp = List->header;
+        while (tmp != NULL) {
+            next = tmp->next;
+            free(tmp);
+            tmp = next;
+        }
+    }
+
+    if (cpu_array != NULL)
+        free(cpu_array);
+
+    /* calculate program runtime */
+    printf("Total run time is %ld microseconds.\n",
+           (endtime.tv_sec - starttime.tv_sec) * 1000000L +
+           (endtime.tv_usec - starttime.tv_usec));
+
+    pthread_mutex_destroy(&mutex_lock);
+    free(List);
+
+    return 0;
+}
